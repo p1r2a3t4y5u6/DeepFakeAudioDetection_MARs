@@ -24,9 +24,13 @@ st.markdown("""
 <style>
 .main { max-width: 800px; margin: 0 auto; }
 
+body, .stApp {
+    background-color: #0a0a0a;
+}
+
 .result-genuine {
-    background: linear-gradient(135deg, #1a472a, #2d6a4f);
-    border: 2px solid #52b788;
+    background: linear-gradient(135deg, #1a0a0a, #2a1414);
+    border: 2px solid #5DCAA5;
     border-radius: 16px;
     padding: 32px;
     text-align: center;
@@ -34,8 +38,8 @@ st.markdown("""
 }
 
 .result-deepfake {
-    background: linear-gradient(135deg, #6b1a1a, #9b2226);
-    border: 2px solid #e63946;
+    background: linear-gradient(135deg, #1a0a0a, #3a1414);
+    border: 2px solid #E24B4A;
     border-radius: 16px;
     padding: 32px;
     text-align: center;
@@ -58,7 +62,8 @@ st.markdown("""
 
 .confidence-badge {
     display: inline-block;
-    background: rgba(255,255,255,0.2);
+    background: rgba(226,75,74,0.25);
+    border: 1px solid #E24B4A;
     border-radius: 50px;
     padding: 6px 20px;
     font-size: 1.1rem;
@@ -87,23 +92,43 @@ st.markdown("""
 }
 
 .upload-box {
-    border: 2px dashed #4a4a6a;
+    border: 2px dashed #5a2a2a;
     border-radius: 12px;
     padding: 20px;
     text-align: center;
-    background: #0e0e1a;
+    background: #150a0a;
 }
 
 .info-card {
-    background: #1a1a2e;
+    background: #150a0a;
     border-radius: 10px;
     padding: 16px 20px;
     margin: 8px 0;
-    border-left: 3px solid #7c6fcd;
+    border-left: 3px solid #E24B4A;
 }
 
-h1 { color: #e0e0ff !important; }
-.stProgress > div > div { background-color: #7c6fcd; }
+h1, h2, h3, h4, h5, h6 { color: #f5e6e6 !important; }
+p, span, label, div { color: #f5e6e6; }
+.stProgress > div > div { background-color: #E24B4A; }
+.stMarkdown { color: #f5e6e6; }
+
+[data-testid="stFileUploader"] {
+    background: #150a0a;
+    border: 1px dashed #5a2a2a;
+    border-radius: 12px;
+    padding: 10px;
+}
+
+[data-testid="stExpander"] {
+    background: #150a0a;
+    border: 1px solid #2a1414;
+    border-radius: 10px;
+}
+
+.stAlert {
+    background-color: #1a0a0a !important;
+    border: 1px solid #5a2a2a !important;
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -225,14 +250,49 @@ class AudioAuthenticityModel(nn.Module):
         return self.head(self.temporal(self.encoder(x)))
 
 
+# Maps old checkpoint key prefixes (from a previous refactor of the model
+# class) to the current module names defined above. This allows loading
+# checkpoints saved under the old naming scheme without retraining.
+KEY_RENAME_MAP = [
+    ("cnn.b1.net.", "encoder.block1.layers."),
+    ("cnn.b2.net.", "encoder.block2.layers."),
+    ("cnn.b3.net.", "encoder.block3.layers."),
+    ("cnn.proj.", "encoder.proj."),
+    ("cnn.norm.", "encoder.norm."),
+    ("transformer.pos.", "temporal.position_embed."),
+    ("transformer.tf.", "temporal.encoder."),
+    ("head.attn.", "head.attn_score."),
+    ("head.mlp.", "head.classifier."),
+]
+
+
+def remap_state_dict_keys(state_dict: dict) -> dict:
+    remapped = {}
+    for key, value in state_dict.items():
+        new_key = key
+        for old_prefix, new_prefix in KEY_RENAME_MAP:
+            if new_key.startswith(old_prefix):
+                new_key = new_prefix + new_key[len(old_prefix):]
+                break
+        remapped[new_key] = value
+    return remapped
+
+
 @st.cache_resource
 def load_model():
     if not os.path.exists(S.model_path):
         return None
+
     model = AudioAuthenticityModel().to(DEVICE)
-    model.load_state_dict(
-        torch.load(S.model_path, map_location=DEVICE, weights_only=True)
-    )
+    raw_state_dict = torch.load(S.model_path, map_location=DEVICE, weights_only=True)
+
+    try:
+        model.load_state_dict(raw_state_dict)
+    except RuntimeError:
+        # Fall back to remapping keys from the old naming scheme.
+        remapped_state_dict = remap_state_dict_keys(raw_state_dict)
+        model.load_state_dict(remapped_state_dict)
+
     model.eval()
     return model
 
@@ -276,21 +336,21 @@ def bytes_to_melspec(file_bytes: bytes):
 
 def render_spectrogram(mel_np: np.ndarray) -> plt.Figure:
     fig, ax = plt.subplots(figsize=(10, 3))
-    fig.patch.set_facecolor("#0e0e1a")
-    ax.set_facecolor("#0e0e1a")
+    fig.patch.set_facecolor("#0a0505")
+    ax.set_facecolor("#0a0505")
 
-    img = ax.imshow(mel_np, aspect="auto", origin="lower", cmap="magma", interpolation="nearest")
-    ax.set_title("Mel-Spectrogram", color="white", fontsize=12, pad=10)
-    ax.set_xlabel("Time Frames", color="#aaaacc")
-    ax.set_ylabel("Mel Bins", color="#aaaacc")
-    ax.tick_params(colors="#aaaacc")
+    img = ax.imshow(mel_np, aspect="auto", origin="lower", cmap="inferno", interpolation="nearest")
+    ax.set_title("Mel-Spectrogram", color="#f5e6e6", fontsize=12, pad=10)
+    ax.set_xlabel("Time Frames", color="#b08585")
+    ax.set_ylabel("Mel Bins", color="#b08585")
+    ax.tick_params(colors="#b08585")
 
     for spine in ax.spines.values():
-        spine.set_edgecolor("#333355")
+        spine.set_edgecolor("#5a2a2a")
 
     cbar = fig.colorbar(img, ax=ax, format="%+2.0f dB")
-    cbar.ax.yaxis.set_tick_params(color="#aaaacc")
-    plt.setp(cbar.ax.yaxis.get_ticklabels(), color="#aaaacc")
+    cbar.ax.yaxis.set_tick_params(color="#b08585")
+    plt.setp(cbar.ax.yaxis.get_ticklabels(), color="#b08585")
 
     plt.tight_layout()
     return fig
@@ -351,7 +411,7 @@ def main():
             genuine_prob = float(probs[0])
             deepfake_prob = float(probs[1])
 
-            decision_threshold = 0.000018
+            decision_threshold = 0.5
             label = "Deepfake" if deepfake_prob >= decision_threshold else "Genuine"
             confidence = deepfake_prob if label == "Deepfake" else genuine_prob
         except Exception as e:
@@ -415,7 +475,7 @@ def main():
 
     st.divider()
     st.markdown(
-        "<p style='text-align:center; color:#666688; font-size:0.85rem;'>"
+        "<p style='text-align:center; color:#8a6060; font-size:0.85rem;'>"
         "CNN + Transformer pipeline · Trained on Fake-or-Real Dataset · "
         "Val Accuracy 99.9% · EER 0.08%"
         "</p>",
